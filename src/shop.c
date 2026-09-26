@@ -146,7 +146,7 @@ void ui_render_pass(Shop* shop) {
         admin_panel(&shop->admin);
     }
     if (shop->adv_search.active) {
-        adv_search_panel(&shop->adv_search);
+        adv_search_panel(shop, &shop->adv_search);
     }
     rlImGuiEnd();
 }
@@ -498,6 +498,34 @@ bool init_shop(Shop *shop) {
     SQL_Result csv = admin_load_csv(admin, path);
     if (csv.error) {
         printf("admin_load_csv failed: `%s`\n", csv.error);
+        return false;
+    }
+    // convert according to schema convention
+    SQL_Result typed = sql_run(admin,
+        "CREATE TABLE items_typed ("
+            "id INTEGER PRIMARY KEY,"
+            "name TEXT NOT NULL,"
+            "description TEXT NOT NULL,"
+            "price REAL NOT NULL CHECK(price >= 0),"
+            "stock INTEGER NOT NULL CHECK(stock >= 0),"
+            "category TEXT NOT NULL,"
+            "display TEXT NOT NULL"
+        ");"
+        "INSERT INTO items_typed "
+        "SELECT "
+            "CAST(id AS INTEGER),"
+            "name,"
+            "description,"
+            "CAST(price AS REAL),"
+            "CAST(stock AS INTEGER),"
+            "category,"
+            "display "
+        "FROM items;"
+        "DROP TABLE items;"
+        "ALTER TABLE items_typed RENAME to items;"
+    );
+    if (typed.error) {
+        printf("csv type coerce failed: `%s`\n", typed.error);
         return false;
     }
     schema_list_refresh(admin);

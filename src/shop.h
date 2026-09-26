@@ -66,7 +66,11 @@ typedef struct {
 
 typedef struct {
     bool active;
-    // ??
+    char keywords[100];
+    char category[100];
+    float min_price,max_price;
+    int min_stock;
+    bool use_min,use_max,use_stock,descending;
 } Adv_Search_Panel;
 
 typedef enum {
@@ -163,8 +167,6 @@ void reset_item_list(Item_List* list);
 bool init_shop(Shop *shop);
 void update_shop(Shop *shop);
 void draw_shop(Shop *shop);
-
-
 
 #define ITEM_ID_COLUMN       0
 #define ITEM_NAME_COLUMN     1
