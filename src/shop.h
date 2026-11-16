@@ -69,7 +69,8 @@ typedef struct {
     char keywords[100];
     char category[100];
     float min_price,max_price;
-    bool use_min,use_max,in_stock_only,descending;
+    int min_stock;
+    bool use_min,use_max,use_stock,in_stock_only,descending;
 } Adv_Search_Panel;
 
 
@@ -152,6 +153,7 @@ typedef struct {
     Cart_Item* items;
     int count;
     int capacity;
+    int first_visible_row;
 } Cart;
 
 typedef struct {
@@ -198,6 +200,8 @@ typedef struct Shop {
 
     // CHECKOUT
     bool checkout_complete;
+    int checkout_first_visible_item;
+    float checkout_scrollbar_grab;
     char checkout_message[160];
     char discount_code[32];
     bool discount_box_active;

@@ -96,9 +96,7 @@ bool cart_save_init(Shop* shop) {
 
 void cart_clear(Shop* shop) {
     free(shop->cart.items);
-    shop->cart.items = NULL;
-    shop->cart.count = 0;
-    shop->cart.capacity = 0;
+    shop->cart = (Cart){0};
 }
 
 bool cart_save(Shop* shop) {
@@ -132,6 +130,9 @@ bool cart_save(Shop* shop) {
 
     for (int index = 0; index < shop->cart.count; index++) {
         Cart_Item* cart_item = &shop->cart.items[index];
+        if (cart_item->quantity == 0) {
+            continue;
+        }
 
         sqlite3_reset(insert_statement);
         sqlite3_clear_bindings(insert_statement);

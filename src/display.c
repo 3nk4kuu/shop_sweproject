@@ -84,7 +84,7 @@ void draw_product_information_cube(Shop* shop, Item item, Vector3 pos, float alp
                 original_price,
                 (Vector3){ -1.3, -0.76, text_z },
                 0.15, 0.008,
-                Fade(DARKGRAY, alpha)
+                Fade(SHOP_GREEN, alpha)
             );
         }
         DrawTextCentered3D(
