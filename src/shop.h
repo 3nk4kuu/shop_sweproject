@@ -121,6 +121,7 @@ typedef struct {
     Texture2D texture;
     Screen transition;
     Home_Button_Callback callback;
+    const char* placeholder_label;
 } Home_Button;
 
 typedef struct {

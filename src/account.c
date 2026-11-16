@@ -353,6 +353,7 @@ static bool send_demo_password_reset(Shop* shop, const char* email,
 
 void auth_logout(Shop* shop) {
     Account_State* account = &shop->account;
+    bool was_admin = shop_is_admin(shop);
 
     if (account->logged_in) {
         cart_save(shop);
@@ -361,6 +362,9 @@ void auth_logout(Shop* shop) {
 
     account->logged_in = false;
     account->is_admin = false;
+    if (was_admin) {
+        init_home_menu_buttons(shop);
+    }
     shop->item_editor = (Item_Editor){0};
     account->user_id = 0;
     account->register_mode = false;
@@ -416,6 +420,9 @@ static void submit_login_or_registration(Shop* shop) {
     account->settings_message[0] = '\0';
 
     cart_load(shop);
+    if (shop_is_admin(shop)) {
+        init_home_menu_buttons(shop);
+    }
 }
 
 void update_account(Shop* shop) {
@@ -581,6 +588,7 @@ static void draw_logged_in_account(Shop* shop) {
     }
 
     ImGui_SameLine();
+    // TODO: remove past purchases from admin account settings
     if (ImGui_ButtonEx("Past Purchases##account_purchases_tab", (ImVec2){270.0f, 38.0f})) {
         account->purchase_history_tab = true;
     }
