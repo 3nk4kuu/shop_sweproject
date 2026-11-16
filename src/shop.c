@@ -164,6 +164,10 @@ void ui_render_pass(Shop* shop) {
         account_panel(shop);
     }
     rlImGuiEnd();
+
+    if (shop->screen == ACCOUNT_SCREEN && shop->transition_alpha > 0.0f) {
+        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, shop->transition_alpha));
+    }
 }
 
 void screen_swap(Shop* shop, Screen target) {
@@ -813,7 +817,7 @@ void draw_shop(Shop *shop) {
         break;
     }
 
-    if (shop->transition_alpha > 0.0) {
+    if (shop->screen != ACCOUNT_SCREEN && shop->transition_alpha > 0.0f) {
         DrawRectangle(0,0, screen_w,screen_h, Fade(BLACK, shop->transition_alpha));
     }
     if (shop->search_flash > 0.0f) {
