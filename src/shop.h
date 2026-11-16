@@ -69,8 +69,7 @@ typedef struct {
     char keywords[100];
     char category[100];
     float min_price,max_price;
-    int min_stock;
-    bool use_min,use_max,use_stock,descending;
+    bool use_min,use_max,in_stock_only,descending;
 } Adv_Search_Panel;
 
 
