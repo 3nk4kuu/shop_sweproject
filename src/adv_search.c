@@ -33,6 +33,9 @@ void do_advanced_search(Shop* shop, Adv_Search_Panel *adv_search) {
     if (adv_search->use_stock) {
         APPEND_SQL(sql, "AND stock >= %d ", adv_search->min_stock);
     }
+    if (adv_search->in_stock_only) {
+        APPEND_SQL(sql, "AND stock > 0 ");
+    }
     APPEND_SQL(sql,
         "ORDER BY price %s;",
         adv_search->descending ? "DESC" : "ASC"
@@ -56,16 +59,29 @@ void adv_search_panel(Shop* shop, Adv_Search_Panel *adv_search) {
     if (visible) {
         ImGui_Text("Search");
         ImGui_Separator();
+        ImGui_TextDisabled("Keywords");
         ImGui_SetNextItemWidth(-FLT_MIN);
         ImGui_InputText("##keywords", adv_search->keywords, sizeof(adv_search->keywords), 0);
-        ImGui_TextDisabled("Keywords");
 
+        ImGui_TextDisabled("Category");
         ImGui_SetNextItemWidth(-FLT_MIN);
         ImGui_InputText("##category", adv_search->category, sizeof(adv_search->category), 0);
-        ImGui_TextDisabled("Category");
 
+        ImGui_Spacing();
+        ImGui_Text("Sort");
         ImGui_Separator();
+        bool price_ascending = !adv_search->descending;
+        if (ImGui_Checkbox("Price Ascending", &price_ascending) && price_ascending) {
+            adv_search->descending = false;
+        }
+        bool price_descending = adv_search->descending;
+        if (ImGui_Checkbox("Price Descending", &price_descending) && price_descending) {
+            adv_search->descending = true;
+        }
+
+        ImGui_Spacing();
         ImGui_Text("Filters");
+        ImGui_Separator();
         ImGui_Checkbox("Minimum Price", &adv_search->use_min);
         ImGui_SameLine();
         ImGui_BeginDisabled(!adv_search->use_min);
@@ -87,11 +103,12 @@ void adv_search_panel(Shop* shop, Adv_Search_Panel *adv_search) {
         ImGui_InputInt("##min_stock", &adv_search->min_stock);
         ImGui_EndDisabled();
 
-        ImGui_Checkbox("Sort Price Descending", &adv_search->descending);
+        ImGui_Checkbox("In Stock Only", &adv_search->in_stock_only);
 
         if (adv_search->min_price < 0.0f) adv_search->min_price = 0.0f;
         if (adv_search->max_price < 0.0f) adv_search->max_price = 0.0f;
-        if (adv_search->min_stock < 0)    adv_search->min_stock = 0;
+        if (adv_search->min_stock < 0) adv_search->min_stock = 0;
+
         ImGui_Separator();
 
         if (ImGui_Button("Search")) {
@@ -114,6 +131,7 @@ void adv_search_panel(Shop* shop, Adv_Search_Panel *adv_search) {
             adv_search->use_min = false;
             adv_search->use_max = false;
             adv_search->use_stock = false;
+            adv_search->in_stock_only = false;
             adv_search->descending = false;
         }
         ImGui_SameLine();
