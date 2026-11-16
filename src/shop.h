@@ -76,6 +76,7 @@ typedef struct {
 
 typedef struct {
     bool success;
+    bool is_admin;
     int user_id;
     char username[100];
     char email[160];
@@ -86,6 +87,7 @@ typedef struct {
     bool register_mode;
     bool forgot_password_mode;
     bool logged_in;
+    bool is_admin;
     bool show_password;
     bool purchase_history_tab;
     int user_id;
@@ -125,12 +127,20 @@ typedef struct {
     int id;
     char name[100];
     char description[500];
-    float price;
-    float sale_price;
+    double price;
+    double sale_price;
     int stock;
     char category[100];
     char display[100];
 } Item;
+
+typedef struct {
+    bool active;
+    bool on_sale;
+    Item item;
+    sqlite3_int64 stock;
+    char error[160];
+} Item_Editor;
 
 static inline bool item_is_on_sale(Item item) {
     return item.sale_price > 0 &&
@@ -160,6 +170,7 @@ typedef struct {
     Item* items;
     int count, capacity;
     Arena alloc;
+    const char* category_filter;
 } Item_List;
 
 typedef struct {
@@ -177,6 +188,7 @@ typedef struct Shop {
     Admin_Panel admin;
     Adv_Search_Panel adv_search;
     Account_State account;
+    Item_Editor item_editor;
 
     Item_Resource_Table item_resources;
     bool paused;
@@ -220,6 +232,10 @@ typedef struct Shop {
     bool fading_out;
     Screen transition_target;
 } Shop;
+
+static inline bool shop_is_admin(const Shop* shop) {
+    return shop->account.logged_in && shop->account.is_admin;
+}
 
 void strip_file_name(char *path);
 
@@ -272,6 +288,7 @@ void update_account(Shop* shop);
 void draw_account(Shop* shop);
 void account_panel(Shop* shop);
 void draw_purchase_history(Shop* shop);
+void open_item_editor(Shop* shop, Item item);
 
 bool init_shop(Shop *shop);
 void update_shop(Shop *shop);
@@ -287,6 +304,9 @@ void draw_shop(Shop *shop);
 #define ITEM_SALE_PRICE_COLUMN 7
 
 #define ITEM_COLUMNS "id, name, description, price, stock, category, display, sale_price"
+#define ITEM_CATEGORY_CHAIRS "chairs"
+#define ITEM_CATEGORY_FURNITURE "furniture"
+#define ITEM_CATEGORY_LARGE "large"
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 

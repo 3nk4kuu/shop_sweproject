@@ -175,20 +175,23 @@ void draw_home(Shop* shop) {
 void chairs_display_callback(Shop* shop) {
     shop->display = query_items(shop,
         "SELECT " ITEM_COLUMNS " FROM items "
-        "WHERE category = 'chairs';"
+        "WHERE category = '" ITEM_CATEGORY_CHAIRS "';"
     );
+    shop->display.category_filter = ITEM_CATEGORY_CHAIRS;
 }
 void furniture_display_callback(Shop* shop) {
     shop->display = query_items(shop,
         "SELECT " ITEM_COLUMNS " FROM items "
-        "WHERE category = 'furniture';"
+        "WHERE category = '" ITEM_CATEGORY_FURNITURE "';"
     );
+    shop->display.category_filter = ITEM_CATEGORY_FURNITURE;
 }
 void large_display_callback(Shop* shop) {
     shop->display = query_items(shop,
         "SELECT " ITEM_COLUMNS " FROM items "
-        "WHERE category = 'large';"
+        "WHERE category = '" ITEM_CATEGORY_LARGE "';"
     );
+    shop->display.category_filter = ITEM_CATEGORY_LARGE;
 }
 
 void init_home_menu_buttons(Shop* shop) {

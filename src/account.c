@@ -181,7 +181,7 @@ Auth_Result auth_login(Shop* shop, const char* username, const char* password) {
     }
 
     const char* find_user_sql =
-        "SELECT id, username, COALESCE(email, '') "
+        "SELECT id, username, COALESCE(email, ''), is_admin = 1 "
         "FROM users "
         "WHERE username = ?1 COLLATE NOCASE AND password_hash = ?2 "
         "LIMIT 1;";
@@ -199,6 +199,7 @@ Auth_Result auth_login(Shop* shop, const char* username, const char* password) {
     if (database_result == SQLITE_ROW) {
         result.success = true;
         result.user_id = sqlite3_column_int(statement, 0);
+        result.is_admin = sqlite3_column_int(statement, 3) == 1;
 
         const unsigned char* stored_username = sqlite3_column_text(statement, 1);
         const unsigned char* stored_email = sqlite3_column_text(statement, 2);
@@ -359,6 +360,8 @@ void auth_logout(Shop* shop) {
     }
 
     account->logged_in = false;
+    account->is_admin = false;
+    shop->item_editor = (Item_Editor){0};
     account->user_id = 0;
     account->register_mode = false;
     account->forgot_password_mode = false;
@@ -403,6 +406,7 @@ static void submit_login_or_registration(Shop* shop) {
     }
 
     account->logged_in = true;
+    account->is_admin = login.is_admin;
     account->forgot_password_mode = false;
     account->user_id = login.user_id;
     snprintf(account->current_username, sizeof(account->current_username), "%s", login.username);

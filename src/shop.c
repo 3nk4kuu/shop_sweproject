@@ -40,6 +40,7 @@
 #include "cart_save.c"
 #include "purchases.c"
 #include "account.c"
+#include "item_editor.c"
 #include "web_clipboard.c"
 
 int main(int argc, char* argv[]) {
@@ -73,7 +74,7 @@ int main(int argc, char* argv[]) {
         if (admin_shortcut) {
             shop.admin.active = !shop.admin.active;
         }
-        shop.paused = shop.admin.active || shop.adv_search.active;
+        shop.paused = shop.admin.active || shop.adv_search.active || shop.item_editor.active;
         
         // UPDATE
         if (!shop.paused) {
@@ -157,6 +158,9 @@ void ui_render_pass(Shop* shop) {
     if (shop->admin.active) {
         admin_panel(&shop->admin);
     }
+    if (!shop->admin.active && shop->item_editor.active && shop_is_admin(shop)) {
+        item_editor_panel(shop);
+    }
     if (shop->adv_search.active) {
         adv_search_panel(shop, &shop->adv_search);
     }
@@ -172,6 +176,7 @@ void ui_render_pass(Shop* shop) {
 
 void screen_swap(Shop* shop, Screen target) {
     if (shop->transitioning) return;
+    if (shop_is_admin(shop) && (target == CART_SCREEN || target == CHECKOUT_SCREEN)) return;
     shop->transitioning = true;
     shop->fading_out = true;
     shop->transition_target = target;
@@ -330,10 +335,10 @@ Item_List query_items(Shop* shop, const char* sql) {
             CELL(&result, ITEM_DESC_COLUMN, y)
         );
 
-        item.price = strtof(CELL(&result, ITEM_PRICE_COLUMN, y), NULL);
+        item.price = strtod(CELL(&result, ITEM_PRICE_COLUMN, y), NULL);
         const char *sale = CELL(&result, ITEM_SALE_PRICE_COLUMN, y);
 
-        item.sale_price = sale ? strtof(sale, NULL) : 0.0f;
+        item.sale_price = sale ? strtod(sale, NULL) : 0.0;
         item.stock = atoi(CELL(&result, ITEM_STOCK_COLUMN, y));
         snprintf(item.category, sizeof(item.category), "%s", 
             CELL(&result, ITEM_CATEGORY_COLUMN, y)
@@ -688,7 +693,7 @@ void update_shop(Shop *shop) {
         if (button_event(shop, advanced_search_button_bounds(shop))) {
             shop->adv_search.active = true;
         }
-        if (button_event(shop, cart_button_bounds(shop))) {
+        if (!shop_is_admin(shop) && button_event(shop, cart_button_bounds(shop))) {
             screen_swap(shop, CART_SCREEN);
         }
         break;
@@ -699,6 +704,7 @@ void update_shop(Shop *shop) {
 
     case DISPLAY_SCREEN:
         update_display(shop);
+        if (shop->item_editor.active) break;
         if (button_event(shop, back_button_bounds(shop))) {
             screen_swap(shop, HOME_SCREEN);
         }
@@ -719,7 +725,7 @@ void update_shop(Shop *shop) {
         if (button_event(shop, advanced_search_button_bounds(shop))) {
             shop->adv_search.active = true;
         }
-        if(button_event(shop, cart_button_bounds(shop))){
+        if (!shop_is_admin(shop) && button_event(shop, cart_button_bounds(shop))) {
             screen_swap(shop, CART_SCREEN);
         }
         break;
@@ -788,7 +794,7 @@ void draw_shop(Shop *shop) {
         draw_home(shop);
         draw_search_bar(shop);
         draw_button(shop, advanced_search_button_bounds(shop), "Adv.", SHOP_BLUE);
-        draw_cart_button_with_count(shop);
+        if (!shop_is_admin(shop)) draw_cart_button_with_count(shop);
         break;
 
     case ACCOUNT_SCREEN:
@@ -802,7 +808,7 @@ void draw_shop(Shop *shop) {
         draw_search_bar(shop);
         draw_button(shop, advanced_search_button_bounds(shop), "Adv.", SHOP_BLUE);
         draw_button(shop, back_button_bounds(shop), "< HOME", SHOP_GREEN);
-        draw_cart_button_with_count(shop);
+        if (!shop_is_admin(shop)) draw_cart_button_with_count(shop);
         break;
 
     case CART_SCREEN:
