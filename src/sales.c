@@ -5,7 +5,7 @@ static bool auth_has_admin_access(Shop* shop) {
     if (!shop_is_admin(shop)) return false;
     sqlite3_stmt* stmt = NULL;
     bool allowed = sqlite3_prepare_v2(shop->admin.db,
-        "SELECT 1 FROM users WHERE id = ? AND is_admin = 1", -1, &stmt, NULL) == SQLITE_OK &&
+        "SELECT 1 FROM users WHERE id = ? AND is_admin = 1 AND is_enabled = 1", -1, &stmt, NULL) == SQLITE_OK &&
         sqlite3_bind_int(stmt, 1, shop->account.user_id) == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW;
     sqlite3_finalize(stmt);
     return allowed;
@@ -556,7 +556,7 @@ static void sales_delete_confirmation(Shop* shop) {
     ImVec2 view = ImGui_GetIO()->DisplaySize;
     ImGui_SetNextWindowPosEx((ImVec2){view.x/2,view.y/2},ImGuiCond_Appearing,(ImVec2){0.5f,0.5f});
     ImGui_SetNextWindowSizeConstraints((ImVec2){fminf(420,view.x-24),0},(ImVec2){fminf(520,view.x-24),view.y-24},NULL,NULL);
-    if (ImGui_BeginPopupModal("Delete Code",NULL,ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+    if (panel_begin_modal("Delete Code",ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
         ImGui_TextWrapped("Are you sure you want to delete %s?",state->delete_name);
         if (state->error[0]) ImGui_TextWrapped("%s",state->error);
         float width = 220+ImGui_GetStyle()->ItemSpacing.x;
@@ -812,10 +812,10 @@ static void sales_time_cell(sqlite3_int64 value) {
     sales_cell(text);
 }
 
-static void sales_pagination(int* page, int count, Sales_State* state) {
+static void sales_pagination(int* page, int count, Sales_State* state, int page_size) {
     if (count == 0) { ImGui_TextDisabled("No entries in this section."); return; }
     char range[64];
-    snprintf(range,sizeof(range),"Showing %d-%d of %d",*page*10+1,MIN(*page*10+10,count),count);
+    snprintf(range,sizeof(range),"Showing %d-%d of %d",*page*page_size+1,MIN((*page+1)*page_size,count),count);
     ImGuiStyle* style = ImGui_GetStyle();
     float width = ImGui_CalcTextSize("Prev").x+ImGui_CalcTextSize(range).x+ImGui_CalcTextSize("Next").x+
                   style->FramePadding.x*4+style->ItemSpacing.x*2;
@@ -826,7 +826,7 @@ static void sales_pagination(int* page, int count, Sales_State* state) {
     ImGui_SameLine();
     ImGui_TextUnformatted(range);
     ImGui_SameLine();
-    ImGui_BeginDisabled((*page+1)*10 >= count);
+    ImGui_BeginDisabled((*page+1)*page_size >= count);
     if (ImGui_Button("Next")) { (*page)++; state->expanded_sale = 0; }
     ImGui_EndDisabled();
 }
@@ -945,7 +945,7 @@ static void sales_end_confirmation(Shop* shop) {
     ImVec2 view = ImGui_GetIO()->DisplaySize;
     ImGui_SetNextWindowPosEx((ImVec2){view.x/2,view.y/2},ImGuiCond_Appearing,(ImVec2){0.5f,0.5f});
     ImGui_SetNextWindowSizeConstraints((ImVec2){fminf(420,view.x-24),0},(ImVec2){fminf(520,view.x-24),view.y-24},NULL,NULL);
-    if (ImGui_BeginPopupModal("End Sale",NULL,ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
+    if (panel_begin_modal("End Sale",ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
         ImGui_TextUnformatted("Are you sure you want to end");
         ImGui_SameLine();
         static ImFont* bold = NULL;
@@ -1140,7 +1140,7 @@ static void sales_section(Shop* shop, int tab, int status) {
     }
     ImGui_SetCursorPosX(content_x);
     sqlite3_finalize(stmt);
-    sales_pagination(page,count,state);
+    sales_pagination(page,count,state,10);
     if (toggle_code && auth_has_admin_access(shop)) {
         stmt = sales_prepare(shop,"UPDATE discount_codes SET is_active=NOT is_active WHERE id=? AND deleted_at IS NULL");
         if (stmt) {
@@ -1204,6 +1204,36 @@ static Rectangle sales_create_button_bounds(Shop* shop) {
     return bounds;
 }
 
+static void dashboard_back_to_top(Shop* shop, bool show, bool blocked, float* alpha, bool* scroll_to_top) {
+    Rectangle viewport = sales_viewport(shop);
+    float page_scale = viewport.width/shop->render_target.texture.width;
+    *alpha = show
+        ? fminf(1.0f,*alpha+ImGui_GetIO()->DeltaTime/0.2f)
+        : fmaxf(0.0f,*alpha-ImGui_GetIO()->DeltaTime/0.2f);
+    if (*alpha > 0.0f) {
+        float size = 60.0f*page_scale;
+        float top = shop->screen == USERS_SCREEN
+            ? back_button_bounds(shop).y+(back_button_bounds(shop).height-60.0f)*0.5f
+            : shop->render_target.texture.height-180.0f;
+        ImGui_SetNextWindowPos((ImVec2){viewport.x+viewport.width-24.0f*page_scale-size,
+                                      viewport.y+top*page_scale},ImGuiCond_Always);
+        ImGui_SetNextWindowSize((ImVec2){size,size},ImGuiCond_Always);
+        ImGui_SetNextWindowScroll((ImVec2){0,0});
+        ImGui_PushStyleVarImVec2(ImGuiStyleVar_WindowPadding,(ImVec2){0,0});
+        ImGui_PushStyleVar(ImGuiStyleVar_Alpha,ImGui_GetStyle()->Alpha * (*alpha));
+        if (ImGui_Begin("##sales_page_top",NULL,ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+            ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoFocusOnAppearing)) {
+            ImGui_BeginDisabled(blocked);
+            if (ImGui_ButtonEx(ICON_FA_CHEVRON_UP "##back_to_top",(ImVec2){size,size})) *scroll_to_top = true;
+            if (ImGui_IsItemHovered(0)) sales_tooltip(shop,"Back to Top");
+            ImGui_EndDisabled();
+        }
+        ImGui_End();
+        ImGui_PopStyleVarEx(2);
+    }
+}
+
 static void sales_dashboard(Shop* shop) {
     if (!auth_has_admin_access(shop)) {
         sales_close_form(shop);
@@ -1265,28 +1295,9 @@ static void sales_dashboard(Shop* shop) {
         ImGui_EndDisabled();
     }
     ImGui_End();
-    state->back_to_top_alpha = state->show_back_to_top
-        ? fminf(1.0f,state->back_to_top_alpha+ImGui_GetIO()->DeltaTime/0.2f)
-        : fmaxf(0.0f,state->back_to_top_alpha-ImGui_GetIO()->DeltaTime/0.2f);
-    if (state->back_to_top_alpha > 0.0f) {
-        float size = 60.0f*page_scale;
-        ImGui_SetNextWindowPos((ImVec2){viewport.x+viewport.width-24.0f*page_scale-size,
-                                      viewport.y+viewport.height-180.0f*page_scale},ImGuiCond_Always);
-        ImGui_SetNextWindowSize((ImVec2){size,size},ImGuiCond_Always);
-        ImGui_SetNextWindowScroll((ImVec2){0,0});
-        ImGui_PushStyleVarImVec2(ImGuiStyleVar_WindowPadding,(ImVec2){0,0});
-        ImGui_PushStyleVar(ImGuiStyleVar_Alpha,ImGui_GetStyle()->Alpha*state->back_to_top_alpha);
-        if (ImGui_Begin("##sales_page_top",NULL,ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-            ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoFocusOnAppearing)) {
-            ImGui_BeginDisabled(state->form != 0 || state->confirm_end != 0 || state->advanced_open || shop->transitioning);
-            if (ImGui_ButtonEx(ICON_FA_CHEVRON_UP "##back_to_top",(ImVec2){size,size})) state->scroll_to_top = true;
-            if (ImGui_IsItemHovered(0)) sales_tooltip(shop,"Back to Top");
-            ImGui_EndDisabled();
-        }
-        ImGui_End();
-        ImGui_PopStyleVarEx(2);
-    }
+    dashboard_back_to_top(shop,state->show_back_to_top,
+        state->form || state->confirm_end || state->advanced_open || shop->transitioning,
+        &state->back_to_top_alpha,&state->scroll_to_top);
     ImGui_PopStyleVarEx(9);
     ImGui_PopFont();
     ImGui_PopStyleColorEx(page_colors);
@@ -1296,11 +1307,12 @@ static void sales_dashboard(Shop* shop) {
 
 static bool sales_page_draw_list(const ImDrawList* list) {
     const char* owner = list->_OwnerName;
-    return owner && strncmp(owner,"##sales_page",12) == 0;
+    return owner && (strncmp(owner,"##sales_page",12) == 0 || strncmp(owner,"##users_page",12) == 0);
 }
 
 static void sales_render_ui(Shop* shop) {
-    RenderTexture2D* target = &shop->sales.page_target;
+    bool users = shop->screen == USERS_SCREEN;
+    RenderTexture2D* target = users ? &shop->users.page_target : &shop->sales.page_target;
     Rectangle viewport = sales_viewport(shop);
     int width = (int)roundf(viewport.width*GetRenderWidth()/GetScreenWidth());
     int height = (int)roundf(viewport.height*GetRenderHeight()/GetScreenHeight());
@@ -1341,8 +1353,9 @@ static void sales_render_ui(Shop* shop) {
         for (int i = 0; i < original.CmdLists.Size; i++) {
             ImDrawList* list = original.CmdLists.Data[i];
             if (!sales_page_draw_list(list)) continue;
-            bool tooltip = strcmp(list->_OwnerName,"##sales_page_tooltip") == 0;
-            if (tooltip != (pass == 1)) continue;
+            bool overlay = strcmp(list->_OwnerName,"##sales_page_tooltip") == 0 ||
+                           strcmp(list->_OwnerName,"##sales_page_top") == 0;
+            if (overlay != (pass == 1)) continue;
             ImDrawList local = *list;
             memcpy(commands,list->CmdBuffer.Data,list->CmdBuffer.Size*sizeof(*commands));
             for (int c = 0; c < list->CmdBuffer.Size; c++) {
@@ -1366,16 +1379,16 @@ static void sales_render_ui(Shop* shop) {
                          (GetScreenHeight()-shop->render_target.texture.height*scale)*0.5f,0);
             rlScalef(scale,scale,1);
             // Copy the existing shop search control at its native resolution before scaling it with the page.
-            float header_scroll = shop->sales.scroll_y/scale;
+            float header_scroll = users ? 0 : shop->sales.scroll_y/scale;
             if (header_scroll < 100.0f) {
                 DrawTexturePro(shop->render_target.texture,
                     (Rectangle){0,shop->render_target.texture.height-100,shop->render_target.texture.width,-100},
                     (Rectangle){0,-header_scroll,shop->render_target.texture.width,100},(Vector2){0},0,WHITE);
-                DrawText("SALES",50,50-header_scroll,40,BLACK);
+                DrawText(users ? "USERS & ORDERS" : "SALES",50,50-header_scroll,40,BLACK);
             }
             draw_button(shop,back_button_bounds(shop),"< HOME",SHOP_GREEN);
             const char* actions[] = {"Create Code +","Put Item on Sale +","Create Group Sale +"};
-            draw_button(shop,sales_create_button_bounds(shop),actions[shop->sales.current_tab],SHOP_BLUE);
+            if (!users) draw_button(shop,sales_create_button_bounds(shop),actions[shop->sales.current_tab],SHOP_BLUE);
             rlPopMatrix();
         }
     }

@@ -76,7 +76,7 @@ static bool save_item_edit(Shop* shop) {
         "UPDATE items SET display = ?1, description = ?2, price = ?3, "
         "stock = CASE WHEN ?5 THEN ?6 ELSE stock END, category = ?10 "
         "WHERE id = ?7 AND (NOT ?5 OR stock = ?8) "
-        "AND EXISTS (SELECT 1 FROM users WHERE id = ?9 AND is_admin = 1);";
+        "AND EXISTS (SELECT 1 FROM users WHERE id = ?9 AND is_admin = 1 AND is_enabled = 1);";
     if (sqlite3_prepare_v2(db, sql, -1, &statement, NULL) != SQLITE_OK) {
         sales_finish_transaction(shop, false);
         return item_editor_error(editor, "Could not save this item. Try again.");

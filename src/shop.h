@@ -114,6 +114,7 @@ typedef enum {
     CART_SCREEN,
     CHECKOUT_SCREEN,
     SALES_SCREEN,
+    USERS_SCREEN,
 } Screen;
 
 typedef void (*Home_Button_Callback)(Shop *shop);
@@ -216,6 +217,35 @@ typedef struct {
 } Sales_State;
 
 typedef struct {
+    int role, status, sort;
+    bool descending, use_min, use_max;
+    double minimum, maximum;
+    char customer[100], date_from[16], date_to[16];
+} Users_Filter;
+
+typedef struct {
+    sqlite3_int64 id, user_id;
+} Users_Expanded;
+
+typedef struct {
+    int current_tab, requested_tab, pages[3], page_sizes[3];
+    sqlite3_int64 revealed_id, editing_id, orders_user_id;
+    Users_Expanded* expanded;
+    int expanded_count, expanded_capacity;
+    bool edit_role, original_role, original_enabled;
+    int confirmation;
+    char username[100], email[160], original_username[100], original_email[160];
+    char orders_username[100], search_input[100], keywords[100];
+    char orders_search_input[100], orders_keywords[100];
+    char message[256], error[256];
+    bool search_active, advanced_open, scroll_to_top, page_can_scroll;
+    float scroll_y, back_to_top_alpha;
+    bool show_back_to_top;
+    RenderTexture2D page_target;
+    Users_Filter filters[3], filter_draft;
+} Users_State;
+
+typedef struct {
     bool is_model;
     float scale;
     union {
@@ -232,6 +262,7 @@ typedef struct Shop {
     Account_State account;
     Item_Editor item_editor;
     Sales_State sales;
+    Users_State users;
 
     Item_Resource_Table item_resources;
     bool paused;
@@ -294,6 +325,7 @@ float carousel_item_alpha(Item_List items, float scroll, float spacing);
 Item_List query_items(Shop* shop, const char* sql);
 void reset_item_list(Item_List* list);
 void draw_button(Shop* shop, Rectangle bounds, const char* label, Color color);
+bool panel_begin_modal(const char* title, ImGuiWindowFlags flags);
 bool button_event(Shop* shop, Rectangle bounds);
 Rectangle cart_button_bounds(Shop* shop);
 Rectangle back_button_bounds(Shop* shop);
@@ -327,6 +359,8 @@ bool auth_init(Shop* shop);
 Auth_Result auth_login(Shop* shop, const char* username, const char* password);
 Auth_Result auth_register(Shop* shop, const char* username, const char* password);
 void auth_logout(Shop* shop);
+bool auth_refresh_session(Shop* shop);
+void users_collapse_all(Shop* shop);
 void update_account(Shop* shop);
 void draw_account(Shop* shop);
 void account_panel(Shop* shop);

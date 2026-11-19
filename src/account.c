@@ -28,7 +28,14 @@ bool auth_init(Shop* shop) {
             "created_at TEXT DEFAULT CURRENT_TIMESTAMP"
         ");";
 
-    return account_run_sql(shop, account_schema);
+    if (!account_run_sql(shop, account_schema)) return false;
+    sqlite3_stmt* columns = NULL;
+    if (sqlite3_prepare_v2(shop->admin.db,
+        "SELECT 1 FROM pragma_table_info('users') WHERE name='is_enabled'", -1, &columns, NULL) != SQLITE_OK) return false;
+    bool exists = sqlite3_step(columns) == SQLITE_ROW;
+    sqlite3_finalize(columns);
+    return exists || account_run_sql(shop,
+        "ALTER TABLE users ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 1 CHECK(is_enabled IN (0,1))");
 }
 
 static bool username_is_valid(const char* username) {
@@ -183,7 +190,7 @@ Auth_Result auth_login(Shop* shop, const char* username, const char* password) {
     const char* find_user_sql =
         "SELECT id, username, COALESCE(email, ''), is_admin = 1 "
         "FROM users "
-        "WHERE username = ?1 COLLATE NOCASE AND password_hash = ?2 "
+        "WHERE username = ?1 COLLATE NOCASE AND password_hash = ?2 AND is_enabled = 1 "
         "LIMIT 1;";
 
     sqlite3_stmt* statement = NULL;
@@ -227,7 +234,7 @@ static bool update_recovery_email(Shop* shop, const char* email,
         return false;
     }
 
-    const char* update_email_sql = "UPDATE users SET email = ?1 WHERE id = ?2;";
+    const char* update_email_sql = "UPDATE users SET email = ?1 WHERE id = ?2 AND is_enabled = 1;";
     sqlite3_stmt* statement = NULL;
 
     if (sqlite3_prepare_v2(shop->admin.db, update_email_sql, -1, &statement, NULL) != SQLITE_OK) {
@@ -246,7 +253,7 @@ static bool update_recovery_email(Shop* shop, const char* email,
         return false;
     }
 
-    if (database_result != SQLITE_DONE) {
+    if (database_result != SQLITE_DONE || sqlite3_changes(shop->admin.db) != 1) {
         snprintf(message, message_size, "Could not save the recovery email.");
         return false;
     }
@@ -278,7 +285,7 @@ static bool change_account_password(Shop* shop,
     }
 
     const char* verify_password_sql =
-        "SELECT 1 FROM users WHERE id = ?1 AND password_hash = ?2 LIMIT 1;";
+        "SELECT 1 FROM users WHERE id = ?1 AND password_hash = ?2 AND is_enabled = 1 LIMIT 1;";
     sqlite3_stmt* verify_statement = NULL;
 
     if (sqlite3_prepare_v2(shop->admin.db, verify_password_sql, -1,
@@ -299,7 +306,7 @@ static bool change_account_password(Shop* shop,
     }
 
     const char* update_password_sql =
-        "UPDATE users SET password_hash = ?1 WHERE id = ?2;";
+        "UPDATE users SET password_hash = ?1 WHERE id = ?2 AND is_enabled = 1;";
     sqlite3_stmt* update_statement = NULL;
 
     if (sqlite3_prepare_v2(shop->admin.db, update_password_sql, -1,
@@ -314,7 +321,7 @@ static bool change_account_password(Shop* shop,
     int database_result = sqlite3_step(update_statement);
     sqlite3_finalize(update_statement);
 
-    if (database_result != SQLITE_DONE) {
+    if (database_result != SQLITE_DONE || sqlite3_changes(shop->admin.db) != 1) {
         snprintf(message, message_size, "Could not change the password.");
         return false;
     }
@@ -367,6 +374,8 @@ void auth_logout(Shop* shop) {
     }
     shop->item_editor = (Item_Editor){0};
     sales_close_form(shop);
+    users_collapse_all(shop);
+    shop->users = (Users_State){.page_target = shop->users.page_target};
     memset(shop->sales.pages, 0, sizeof(shop->sales.pages));
     shop->sales.expanded_sale = 0;
     shop->sales.message[0] = shop->sales.error[0] = '\0';
@@ -386,6 +395,45 @@ void auth_logout(Shop* shop) {
     account->settings_message[0] = '\0';
 
     snprintf(account->message, sizeof(account->message), "Logged out.");
+}
+
+bool auth_refresh_session(Shop* shop) {
+    Account_State* account = &shop->account;
+    if (!account->logged_in) return false;
+    sqlite3_stmt* stmt = NULL;
+    if (sqlite3_prepare_v2(shop->admin.db,
+        "SELECT username,COALESCE(email,''),is_admin,is_enabled FROM users WHERE id=?", -1, &stmt, NULL) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt,1,account->user_id);
+    int rc = sqlite3_step(stmt);
+    if (rc != SQLITE_ROW || sqlite3_column_int(stmt,3) != 1) {
+        sqlite3_finalize(stmt);
+        if (rc != SQLITE_ROW && rc != SQLITE_DONE) return false;
+        auth_logout(shop);
+        shop->screen = HOME_SCREEN;
+        shop->transitioning = false;
+        shop->transition_alpha = 0;
+        snprintf(account->message,sizeof(account->message),"This account is disabled or no longer available.");
+        return false;
+    }
+    bool changed_role = account->is_admin != (sqlite3_column_int(stmt,2) == 1);
+    account->is_admin = sqlite3_column_int(stmt,2) == 1;
+    if (strcmp(account->email,account->current_email) == 0)
+        snprintf(account->email,sizeof(account->email),"%s",sqlite3_column_text(stmt,1));
+    snprintf(account->current_username,sizeof(account->current_username),"%s",sqlite3_column_text(stmt,0));
+    snprintf(account->current_email,sizeof(account->current_email),"%s",sqlite3_column_text(stmt,1));
+    sqlite3_finalize(stmt);
+    if (changed_role) {
+        cart_clear(shop);
+        sales_close_form(shop);
+        users_collapse_all(shop);
+        shop->users = (Users_State){.page_target = shop->users.page_target};
+        shop->item_editor = (Item_Editor){0};
+        init_home_menu_buttons(shop);
+        shop->screen = HOME_SCREEN;
+        shop->transitioning = false;
+        shop->transition_alpha = 0;
+    }
+    return true;
 }
 
 static void submit_login_or_registration(Shop* shop) {

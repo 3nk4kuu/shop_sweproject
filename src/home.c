@@ -62,7 +62,7 @@ void update_home(Shop* shop) {
         Home_Button button = shop->home_buttons[i];
         if (button.callback) {
             button.callback(shop);
-        } else if (button.placeholder_label && button.transition != SALES_SCREEN) {
+        } else if (button.placeholder_label && button.transition != SALES_SCREEN && button.transition != USERS_SCREEN) {
             return;
         }
         screen_swap(shop, button.transition);
@@ -250,8 +250,7 @@ void init_home_menu_buttons(Shop* shop) {
     });
     if (is_admin) {
         add_home_button(shop, (Home_Button){.placeholder_label = "Sales", .transition = SALES_SCREEN});
-        add_home_button(shop, (Home_Button){.placeholder_label = "Order History"});
-        add_home_button(shop, (Home_Button){.placeholder_label = "Users"});
+        add_home_button(shop, (Home_Button){.placeholder_label = "Users & Orders", .transition = USERS_SCREEN});
     }
     add_home_button(shop, (Home_Button) {
         .texture = ACCOUNT_SETTINGS_HOME_ICON,

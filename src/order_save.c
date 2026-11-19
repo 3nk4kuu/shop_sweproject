@@ -38,7 +38,8 @@ bool order_save_purchase(Shop* shop, int discount_code_id, float subtotal, float
         return false;
     }
 
-    if (!sales_checkout_matches(shop, discount_code_id, subtotal, discount_amount)) {
+    if (!auth_refresh_session(shop) || shop_is_admin(shop) ||
+        !sales_checkout_matches(shop, discount_code_id, subtotal, discount_amount)) {
         sqlite3_exec(database, "ROLLBACK;", NULL, NULL, NULL);
         return false;
     }
