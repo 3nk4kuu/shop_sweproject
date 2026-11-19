@@ -351,7 +351,10 @@ static void sales_advanced_search(Shop* shop) {
             state->error[0] = '\0';
         }
         ImGui_SameLine();
-        if (ImGui_Button("Cancel")) {
+        bool cancel = ImGui_Button("Cancel");
+        cancel |= ImGui_IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) && ImGui_IsMouseClicked(0);
+        if (cancel) {
+            ImGui_SetWindowFocus();
             snprintf(state->search_input,sizeof(state->search_input),"%s",state->keywords);
             state->advanced_open = false;
             state->error[0] = '\0';
