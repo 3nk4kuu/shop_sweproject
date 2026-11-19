@@ -169,6 +169,8 @@ static sqlite3_stmt* users_query(Shop* shop, int tab, bool count, int page, sqli
         "u.id,u.username,COALESCE(u.email,''),u.password_hash,u.is_admin,u.is_enabled,COALESCE(a.order_count,0),COALESCE(a.spent,0),unixepoch(u.created_at)" :
         "o.id,u.username,unixepoch(o.created_at),COALESCE(a.quantity,0),o.total_amount,u.id",users_from(tab));
     if (user_id) APPEND_SQL(sql," AND u.id=%lld",(long long)user_id);
+    if (tab) APPEND_SQL(sql," AND unixepoch(o.created_at)%sunixepoch()-300",
+        state->orders_completed[user_id ? 1 : 0] ? "<=" : ">");
     {
         char* keyword = sqlite3_mprintf("%%%q%%",user_id ? state->orders_keywords : state->keywords);
         if (tab == 0) APPEND_SQL(sql," AND (CAST(u.id AS TEXT) LIKE '%s' OR u.username LIKE '%s' OR COALESCE(u.email,'') LIKE '%s')",keyword,keyword,keyword);
@@ -234,6 +236,7 @@ static void users_search_bar(Shop* shop, bool update) {
             snprintf(keywords,sizeof(state->keywords),"%s",shop->search_bar);
             if (state->current_tab == 2) state->pages[2] = 0;
             else state->pages[0] = state->pages[1] = 0;
+            memset(state->order_pages,0,sizeof(state->order_pages));
             users_collapse_all(shop);
         }
         memcpy(input,shop->search_bar,sizeof(state->search_input));
@@ -329,6 +332,7 @@ static void users_advanced_search(Shop* shop) {
         users_center_buttons(290);
         if (ImGui_ButtonEx("Search",(ImVec2){90,32}) && users_filter_valid(shop,filter)) {
             state->filters[tab] = *filter;
+            memset(state->order_pages,0,sizeof(state->order_pages));
             snprintf(keywords,sizeof(state->keywords),"%s",input);
             if (state->current_tab == 2) state->pages[2] = 0;
             else state->pages[0] = state->pages[1] = 0;
@@ -477,6 +481,7 @@ static void users_open_orders(Shop* shop, sqlite3_int64 id, const char* username
     state->orders_search_input[0] = state->orders_keywords[0] = '\0';
     state->filters[2] = (Users_Filter){0};
     state->pages[2] = 0;
+    memset(state->order_pages[1],0,sizeof(state->order_pages[1]));
     state->requested_tab = 3;
     state->scroll_to_top = true;
 }
@@ -521,8 +526,8 @@ static bool users_begin_rows(Shop* shop, const char* id, float width, float inne
 
 static void users_order_table(Shop* shop, sqlite3_int64 user_id) {
     Users_State* state = &shop->users;
-    int* page = &state->pages[user_id ? 2 : 1];
-    int page_size = users_fit_rows(shop,user_id ? 2 : 1,0);
+    int* page = &state->order_pages[user_id ? 1 : 0][state->orders_completed[user_id ? 1 : 0]];
+    int page_size = state->page_sizes[user_id ? 2 : 1];
     sqlite3_stmt* stmt = users_query(shop,1,true,0,user_id);
     if (!stmt) return;
     int count = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int(stmt,0) : 0;
@@ -532,12 +537,10 @@ static void users_order_table(Shop* shop, sqlite3_int64 user_id) {
     if (!stmt) return;
     const char* columns[] = {"  Order ID","Customer","Date/Time","Item Count","Total"};
     const float widths[] = {150,160,210,125,160};
-    float width = ImGui_GetContentRegionAvail().x;
     {
-        bool visible = users_begin_rows(shop,"##orders_rows",width,0);
         int row = 0;
         ImGui_PushStyleVarImVec2(ImGuiStyleVar_ItemSpacing,(ImVec2){12,0});
-        while (visible && sqlite3_step(stmt) == SQLITE_ROW) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
             sqlite3_int64 id = sqlite3_column_int64(stmt,0), customer = sqlite3_column_int64(stmt,5);
             bool expanded = users_is_expanded(state,id,customer);
             ImGui_PushIDPtr((void*)(intptr_t)id);
@@ -569,12 +572,32 @@ static void users_order_table(Shop* shop, sqlite3_int64 user_id) {
             ImGui_PopID();
         }
         ImGui_PopStyleVar();
-        ImGui_EndChild();
     }
     sqlite3_finalize(stmt);
     int previous = *page;
     sales_pagination(page,count,&shop->sales,page_size);
     if (*page != previous) users_collapse_all(shop);
+}
+
+static void users_order_sections(Shop* shop, sqlite3_int64 user_id) {
+    Users_State* state = &shop->users;
+    users_fit_rows(shop,user_id ? 2 : 1,0);
+    if (users_begin_rows(shop,"##order_sections",ImGui_GetContentRegionAvail().x,0)) {
+        const char* labels[] = {"Pending","Completed"};
+        for (int completed=0;completed<2;completed++) {
+            state->orders_completed[user_id ? 1 : 0] = completed;
+            sqlite3_stmt* stmt = users_query(shop,1,true,0,user_id);
+            int count = stmt && sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int(stmt,0) : 0;
+            sqlite3_finalize(stmt);
+            char heading[64];
+            snprintf(heading,sizeof(heading),"%s (%d)",labels[completed],count);
+            ImGui_PushIDInt(completed);
+            bool open = ImGui_CollapsingHeader(heading,ImGuiTreeNodeFlags_DefaultOpen);
+            if (open) users_order_table(shop,user_id);
+            ImGui_PopID();
+        }
+    }
+    ImGui_EndChild();
 }
 
 static void users_account_table(Shop* shop) {
@@ -678,7 +701,7 @@ static void users_dashboard(Shop* shop) {
                 state->current_tab = tab;
                 if (select) state->requested_tab = 0;
                 if (tab == 0) users_account_table(shop);
-                else users_order_table(shop,0);
+                else users_order_sections(shop,0);
                 ImGui_EndTabItem();
             }
             if (state->orders_user_id) {
@@ -694,7 +717,7 @@ static void users_dashboard(Shop* shop) {
                     if (ImGui_ButtonEx("-##collapse_all",(ImVec2){32,32})) users_collapse_all(shop);
                     ImGui_EndDisabled();
                     if (ImGui_IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) sales_tooltip(shop,"Collapse All");
-                    users_order_table(shop,state->orders_user_id);
+                    users_order_sections(shop,state->orders_user_id);
                     ImGui_EndTabItem();
                 }
                 if (!open) users_close_orders(shop);
