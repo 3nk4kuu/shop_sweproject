@@ -239,6 +239,8 @@ typedef struct {
     char orders_search_input[100], orders_keywords[100];
     char message[256], error[256];
     bool search_active, advanced_open, scroll_to_top, page_can_scroll;
+    bool orders_completed[2];
+    int order_pages[2][2];
     float scroll_y, back_to_top_alpha;
     bool show_back_to_top;
     RenderTexture2D page_target;
