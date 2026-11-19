@@ -192,7 +192,7 @@ void draw_home(Shop* shop) {
 
 static void all_products_display_callback(Shop* shop) {
     arena_free(&shop->display.alloc);
-    shop->display = query_items(shop, "SELECT " ITEM_COLUMNS " FROM items ORDER BY display;");
+    shop->display = query_items(shop, "SELECT " ITEM_COLUMNS " FROM items ORDER BY category, display;");
     shop->scroll = 0.0f;
     shop->scroll_target = 0.0f;
 }
