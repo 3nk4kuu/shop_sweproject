@@ -40,6 +40,7 @@
 #include "cart_save.c"
 #include "purchases.c"
 #include "account.c"
+#include "sales.c"
 #include "item_editor.c"
 #include "web_clipboard.c"
 
@@ -69,12 +70,13 @@ int main(int argc, char* argv[]) {
     }
 
 	while (!WindowShouldClose()) {
+        if (shop.sales.refreshed_at != (sqlite3_int64)time(NULL)) sales_refresh(&shop);
         // INPUT
         bool admin_shortcut = (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_A);
         if (admin_shortcut) {
             shop.admin.active = !shop.admin.active;
         }
-        shop.paused = shop.admin.active || shop.adv_search.active || shop.item_editor.active;
+        shop.paused = shop.admin.active || shop.adv_search.active || shop.item_editor.active || shop.sales.advanced_open;
         
         // UPDATE
         if (!shop.paused) {
@@ -95,6 +97,8 @@ int main(int argc, char* argv[]) {
     if (shop.account.logged_in) {
         cart_save(&shop);
     }
+    sales_close_form(&shop);
+    if (shop.sales.page_target.id) UnloadRenderTexture(shop.sales.page_target);
     sqlite3_close(shop.admin.db);
     arena_free(&shop.admin.current_ed->alloc);
     rlImGuiShutdown();
@@ -167,15 +171,18 @@ void ui_render_pass(Shop* shop) {
     if (shop->screen == ACCOUNT_SCREEN && !shop->admin.active && !shop->adv_search.active) {
         account_panel(shop);
     }
-    rlImGuiEnd();
+    if (shop->screen == SALES_SCREEN && !shop->admin.active) sales_dashboard(shop);
+    if (shop->screen == SALES_SCREEN && !shop->admin.active) sales_render_ui(shop);
+    else rlImGuiEnd();
 
-    if (shop->screen == ACCOUNT_SCREEN && shop->transition_alpha > 0.0f) {
+    if ((shop->screen == ACCOUNT_SCREEN || shop->screen == SALES_SCREEN) && shop->transition_alpha > 0.0f) {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, shop->transition_alpha));
     }
 }
 
 void screen_swap(Shop* shop, Screen target) {
     if (shop->transitioning) return;
+    if (target == SALES_SCREEN && !shop_is_admin(shop)) return;
     if (shop_is_admin(shop) && (target == CART_SCREEN || target == CHECKOUT_SCREEN)) return;
     shop->transitioning = true;
     shop->fading_out = true;
@@ -407,7 +414,7 @@ void back_button_event(Shop* shop) {
 /* SEARCH BAR */
 Rectangle advanced_search_button_bounds(Shop* shop) {
     float screen_w = shop->render_target.texture.width;
-    return (Rectangle){ screen_w - 24.0 - 80.0, 24.0, 80.0, 60.0 };
+    return (Rectangle){ screen_w - 24.0 - 80.0, 24.0 - shop->sales.search_offset, 80.0, 60.0 };
 }
 
 Rectangle search_bar_bounds(Shop* shop) {
@@ -596,6 +603,10 @@ bool init_shop(Shop *shop) {
         printf("failed to initialize order database tables\n");
         return false;
     }
+    if (!sales_init(shop)) {
+        printf("failed to initialize sales: %s\n", shop->sales.error);
+        return false;
+    }
     schema_list_refresh(admin);
 
     // Renderer setup
@@ -730,6 +741,17 @@ void update_shop(Shop *shop) {
         }
         break;
 
+    case SALES_SCREEN:
+        if (!shop->sales.form && !shop->sales.confirm_end) sales_search_bar(shop,true);
+        if (!shop->sales.form && !shop->sales.confirm_end && !shop->sales.advanced_open &&
+            button_event(shop,sales_create_button_bounds(shop))) {
+            sales_open_form(shop,shop->sales.current_tab+1);
+        }
+        if (!shop->sales.form && !shop->sales.confirm_end && !shop->sales.advanced_open && button_event(shop,back_button_bounds(shop))) {
+            screen_swap(shop,HOME_SCREEN);
+        }
+        break;
+
     case CART_SCREEN:
         update_cart(shop);
         update_checkout_button(shop);
@@ -811,6 +833,11 @@ void draw_shop(Shop *shop) {
         if (!shop_is_admin(shop)) draw_cart_button_with_count(shop);
         break;
 
+    case SALES_SCREEN:
+        ClearBackground(SHOP_BG);
+        sales_search_bar(shop,false);
+        break;
+
     case CART_SCREEN:
         ClearBackground(SHOP_BG);
         draw_cart(shop);
@@ -823,7 +850,7 @@ void draw_shop(Shop *shop) {
         break;
     }
 
-    if (shop->screen != ACCOUNT_SCREEN && shop->transition_alpha > 0.0f) {
+    if (shop->screen != ACCOUNT_SCREEN && shop->screen != SALES_SCREEN && shop->transition_alpha > 0.0f) {
         DrawRectangle(0,0, screen_w,screen_h, Fade(BLACK, shop->transition_alpha));
     }
     if (shop->search_flash > 0.0f) {

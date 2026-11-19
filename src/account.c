@@ -366,6 +366,10 @@ void auth_logout(Shop* shop) {
         init_home_menu_buttons(shop);
     }
     shop->item_editor = (Item_Editor){0};
+    sales_close_form(shop);
+    memset(shop->sales.pages, 0, sizeof(shop->sales.pages));
+    shop->sales.expanded_sale = 0;
+    shop->sales.message[0] = shop->sales.error[0] = '\0';
     account->user_id = 0;
     account->register_mode = false;
     account->forgot_password_mode = false;

@@ -1,19 +1,5 @@
 #include <limits.h>
 
-static bool auth_has_admin_access(Shop* shop) {
-    if (!shop_is_admin(shop)) return false;
-
-    sqlite3_stmt* statement = NULL;
-    const char* sql = "SELECT 1 FROM users WHERE id = ?1 AND is_admin = 1;";
-    if (sqlite3_prepare_v2(shop->admin.db, sql, -1, &statement, NULL) != SQLITE_OK) {
-        return false;
-    }
-    bool allowed = sqlite3_bind_int(statement, 1, shop->account.user_id) == SQLITE_OK &&
-                   sqlite3_step(statement) == SQLITE_ROW;
-    sqlite3_finalize(statement);
-    return allowed;
-}
-
 void open_item_editor(Shop* shop, Item item) {
     if (!auth_has_admin_access(shop)) return;
 
@@ -22,7 +8,17 @@ void open_item_editor(Shop* shop, Item item) {
         .on_sale = item_is_on_sale(item),
         .item = item,
         .stock = item.stock,
+        .original_sale_price = item.sale_price,
     };
+    sqlite3_stmt* sale = sales_prepare(shop,
+        "SELECT 1 FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE si.item_id=? "
+        "AND s.kind='group' AND s.starts_at<=unixepoch() AND s.ended_at IS NULL "
+        "AND (s.ends_at IS NULL OR s.ends_at>unixepoch())");
+    if (sale) {
+        sqlite3_bind_int(sale,1,item.id);
+        shop->item_editor.group_sale = sqlite3_step(sale) == SQLITE_ROW;
+        sqlite3_finalize(sale);
+    }
     shop->search_bar_active = false;
     shop->paused = true;
 }
@@ -72,22 +68,23 @@ static bool save_item_edit(Shop* shop) {
         return item_editor_error(editor, "Enter a stock quantity between 0 and 2,147,483,647.");
     }
 
+    if (!sales_exec(shop, "SAVEPOINT sales_edit")) return item_editor_error(editor, shop->sales.error);
     bool stock_changed = editor->stock != item.stock;
     sqlite3_stmt* statement = NULL;
     sqlite3* db = shop->admin.db;
     const char* sql =
-        "UPDATE items SET display = ?1, description = ?2, price = ?3, sale_price = ?4, "
+        "UPDATE items SET display = ?1, description = ?2, price = ?3, "
         "stock = CASE WHEN ?5 THEN ?6 ELSE stock END, category = ?10 "
         "WHERE id = ?7 AND (NOT ?5 OR stock = ?8) "
         "AND EXISTS (SELECT 1 FROM users WHERE id = ?9 AND is_admin = 1);";
     if (sqlite3_prepare_v2(db, sql, -1, &statement, NULL) != SQLITE_OK) {
+        sales_finish_transaction(shop, false);
         return item_editor_error(editor, "Could not save this item. Try again.");
     }
     bool saved =
         sqlite3_bind_text(statement, 1, item.display, -1, SQLITE_STATIC) == SQLITE_OK &&
         sqlite3_bind_text(statement, 2, item.description, -1, SQLITE_STATIC) == SQLITE_OK &&
         sqlite3_bind_double(statement, 3, item.price) == SQLITE_OK &&
-        sqlite3_bind_double(statement, 4, item.sale_price) == SQLITE_OK &&
         sqlite3_bind_int(statement, 5, stock_changed) == SQLITE_OK &&
         sqlite3_bind_int64(statement, 6, editor->stock) == SQLITE_OK &&
         sqlite3_bind_int(statement, 7, item.id) == SQLITE_OK &&
@@ -98,15 +95,21 @@ static bool save_item_edit(Shop* shop) {
     int updated = saved ? sqlite3_changes(db) : 0;
     sqlite3_finalize(statement);
     if (!saved) {
+        sales_finish_transaction(shop, false);
         return item_editor_error(editor, "Could not save this item. Try again.");
     }
     if (updated != 1) {
+        sales_finish_transaction(shop, false);
         return item_editor_error(editor, "Item availability, stock, or admin access changed. Reopen the editor and try again.");
     }
 
+    bool sale_ok = sales_editor_update(shop, item, editor->on_sale, editor->original_sale_price);
+    if (!sales_finish_transaction(shop, sale_ok)) return item_editor_error(editor, shop->sales.error);
+    item.sale_price = editor->on_sale ? item.sale_price : 0;
     item.stock = item_available_stock(shop, item.id);
     update_edited_item(&shop->display, item);
     update_edited_item(&shop->featured, item);
+    sales_refresh(shop);
     return true;
 }
 
@@ -176,12 +179,15 @@ static void item_editor_panel(Shop* shop) {
         ImGui_SetNextItemWidth(-FLT_MIN);
         ImGui_InputScalar("##item_stock", ImGuiDataType_S64, &editor->stock);
 
+        ImGui_BeginDisabled(editor->group_sale);
         ImGui_Checkbox("On sale", &editor->on_sale);
         ImGui_TextDisabled("Sale price ($)");
         ImGui_BeginDisabled(!editor->on_sale);
         ImGui_SetNextItemWidth(-FLT_MIN);
         ImGui_InputDoubleEx("##item_sale_price", &item->sale_price, 0.0, 0.0, "%.2f", 0);
         ImGui_EndDisabled();
+        ImGui_EndDisabled();
+        if (editor->group_sale) ImGui_TextWrapped("This product is in a group sale. Manage its discount in Sales.");
 
         if (editor->error[0]) {
             ImGui_TextWrapped("%s", editor->error);

@@ -113,6 +113,7 @@ typedef enum {
     ACCOUNT_SCREEN,
     CART_SCREEN,
     CHECKOUT_SCREEN,
+    SALES_SCREEN,
 } Screen;
 
 typedef void (*Home_Button_Callback)(Shop *shop);
@@ -138,8 +139,10 @@ typedef struct {
 typedef struct {
     bool active;
     bool on_sale;
+    bool group_sale;
     Item item;
     sqlite3_int64 stock;
+    double original_sale_price;
     char error[160];
 } Item_Editor;
 
@@ -175,6 +178,44 @@ typedef struct {
 } Item_List;
 
 typedef struct {
+    int type;
+    int sort;
+    bool descending;
+    char category[100], product[100];
+    bool use_min, use_max;
+    double minimum, maximum;
+    char start_from[16], start_to[16], end_from[16], end_to[16];
+} Sales_Filter;
+
+typedef struct {
+    int form; // 1 = discount code, 2 = individual sale, 3 = group sale
+    sqlite3_int64 editing_id, original_start;
+    bool edit_past, edit_started, confirm_delete, start_locked_notice;
+    char delete_name[100];
+    char name[100], search[100], starts[32], ends[32], expires[32];
+    bool scheduled, has_end, percent, enabled;
+    double value;
+    Item_List products;
+    bool* selected;
+    int pages[3][3];
+    sqlite3_int64 expanded_sale;
+    sqlite3_int64 confirm_end;
+    bool open_end_confirmation;
+    char end_name[100];
+    sqlite3_int64 refreshed_at;
+    RenderTexture2D page_target;
+    char message[256], error[256];
+    char search_input[100], keywords[100];
+    bool search_active, advanced_open;
+    float scroll_y, search_offset;
+    bool scroll_to_top, show_back_to_top;
+    float back_to_top_alpha;
+    bool page_can_scroll;
+    int current_tab;
+    Sales_Filter filters[3], filter_draft;
+} Sales_State;
+
+typedef struct {
     bool is_model;
     float scale;
     union {
@@ -190,6 +231,7 @@ typedef struct Shop {
     Adv_Search_Panel adv_search;
     Account_State account;
     Item_Editor item_editor;
+    Sales_State sales;
 
     Item_Resource_Table item_resources;
     bool paused;
@@ -290,6 +332,13 @@ void draw_account(Shop* shop);
 void account_panel(Shop* shop);
 void draw_purchase_history(Shop* shop);
 void open_item_editor(Shop* shop, Item item);
+bool sales_init(Shop* shop);
+bool sales_refresh(Shop* shop);
+bool sales_checkout_matches(Shop* shop, int code_id, float subtotal, float discount);
+Rectangle advanced_search_button_bounds(Shop* shop);
+bool search_bar_event(Shop* shop);
+void draw_search_bar(Shop* shop);
+void sales_close_form(Shop* shop);
 
 bool init_shop(Shop *shop);
 void update_shop(Shop *shop);
